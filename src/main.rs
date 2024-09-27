@@ -108,17 +108,21 @@ fn skybox_color(ray_direction: &Vec3, light_intensity: f32) -> Color {
 
     blended_color
 }
-
+fn fresnel(cos_theta: f32, refractive_index: f32) -> f32 {
+    // La aproximación de Schlick
+    let r0 = ((1.0 - refractive_index) / (1.0 + refractive_index)).powi(2);
+    r0 + (1.0 - r0) * (1.0 - cos_theta).powi(5)
+}
 pub fn cast_ray(
     ray_origin: &Vec3,
     ray_direction: &Vec3,
     objects: &[Object],
-    light_positions: &[Vec3],  // Lista de posiciones de luz
+    light_positions: &[Vec3],
     depth: u32,
-    light_intensity: f32,  // Usar la intensidad de la luz calculada para el ciclo día/noche
+    light_intensity: f32,
 ) -> Color {
     if depth > 3 {
-        return SKYBOX_COLOR;  // Skybox por defecto cuando excede la profundidad
+        return SKYBOX_COLOR;
     }
 
     let mut intersect = Intersect::empty();
@@ -135,11 +139,9 @@ pub fn cast_ray(
     }
 
     if !intersect.is_intersecting {
-        // Si no hay intersección, usar el color del skybox basado en la intensidad de la luz
-        return skybox_color(ray_direction, light_intensity);  // Cambiar el skybox basado en la intensidad de la luz
+        return skybox_color(ray_direction, light_intensity);
     }
 
-    // Calculamos la iluminación combinada de todas las fuentes de luz
     let mut total_diffuse = Color::black();
     let mut total_specular = Color::black();
 
@@ -151,17 +153,23 @@ pub fn cast_ray(
         let shadow_intensity = cast_shadow(&intersect, light_position, objects);
         let light_intensity = 1.5 * (1.0 - shadow_intensity);
 
+        // Cálculo de Fresnel
+        let cos_theta = -ray_direction.dot(&intersect.normal).max(0.0);
+        let fresnel_effect = fresnel(cos_theta, intersect.material.refractive_index);
+
         // Iluminación difusa
         let diffuse_intensity = intersect.normal.dot(&light_dir).max(0.0).min(1.0);
-        total_diffuse = total_diffuse + (intersect.material.diffuse * intersect.material.albedo[0] * diffuse_intensity * light_intensity);
+        total_diffuse = total_diffuse
+            + (intersect.material.diffuse * intersect.material.albedo[0] * diffuse_intensity * light_intensity);
 
-        // Iluminación especular
+        // Iluminación especular con Fresnel aplicado
         let specular_intensity = view_dir.dot(&reflect_dir).max(0.0).powf(intersect.material.specular);
-        total_specular = total_specular + (Color::new(255, 255, 255) * intersect.material.albedo[1] * specular_intensity * light_intensity);
+        total_specular = total_specular
+            + (Color::new(255, 255, 255) * intersect.material.albedo[1] * specular_intensity * light_intensity * fresnel_effect);
     }
 
-    // Si el material es emisivo y es de noche, añadimos su emisión al color final
-    let emission = if intersect.material.is_emissive  {
+    // Emisión si es un material emisivo
+    let emission = if intersect.material.is_emissive {
         intersect.material.emission
     } else {
         Color::black()
@@ -169,6 +177,7 @@ pub fn cast_ray(
 
     total_diffuse + total_specular + emission
 }
+
 
 
 pub fn render(
@@ -374,7 +383,7 @@ fn main() {
         // Terreno (cubos grandes planos)
         Object::Cube(Cube { center: Vec3::new(0.0, 0.0, 0.0), size: 10.0, material: sand_color }, false),
         // Cubos emisivos colocados alrededor de la casa
-        Object::Cube(Cube { center: Vec3::new(-2.5, 5.2, 2.0), size: 0.5, material: light_cube_material }, true),  // Cubo emisivo
+        Object::Cube(Cube { center: Vec3::new(1.0, 5.2, -4.0), size: 0.5, material: light_cube_material }, true),  // Cubo emisivo
         Object::Cube(Cube { center: Vec3::new(4.5, 5.2, 2.0), size: 0.5, material: light_cube_material }, true),  // Cubo emisivo
     ];
 
@@ -423,7 +432,7 @@ fn main() {
         
         let yellow_light_position = Vec3::new(radius * angle.cos(), radius * angle.sin(), 0.0);
         let light_positions = vec![
-            Vec3::new(-2.5, 5.2, 2.0),  // Posición de uno de los cubos de luz
+            Vec3::new(1.0, 5.2, -4.0),  // Posición de uno de los cubos de luz
             Vec3::new(4.5, 5.2, 2.0),   // Posición del otro cubo de luz
             yellow_light_position,       // Luz amarilla en movimiento (sol)
         ];
@@ -452,37 +461,38 @@ fn main() {
         objects_with_water_and_house.extend(sand_border);
         objects_with_water_and_house.extend(sand_house);  // Añadimos la casita
     
-        if window.is_key_down(Key::W) {
-            camera.move_camera("forward"); 
-        }
-    
-        if window.is_key_down(Key::S) {
-            camera.move_camera("backward");
-        }
-    
-        if window.is_key_down(Key::A) {
-            camera.move_camera("left"); 
-        }
-    
-        if window.is_key_down(Key::D) {
-            camera.move_camera("right"); 
-        }
-    
-        if window.is_key_down(Key::Left) {
-            camera.orbit(rotation_speed, 0.0); 
-        }
-    
-        if window.is_key_down(Key::Right) {
-            camera.orbit(-rotation_speed, 0.0); 
-        }
-    
-        if window.is_key_down(Key::Up) {
-            camera.orbit(0.0, -rotation_speed); 
-        }
-    
-        if window.is_key_down(Key::Down) {
-            camera.orbit(0.0, rotation_speed); 
-        }
+      // Movimientos de la cámara
+      if window.is_key_down(Key::W) {
+        camera.move_camera("forward"); 
+    }
+
+    if window.is_key_down(Key::S) {
+        camera.move_camera("backward");
+    }
+
+    if window.is_key_down(Key::A) {
+        camera.orbit(rotation_speed, 0.0);  // Gira la cámara a la izquierda
+    }
+
+    if window.is_key_down(Key::D) {
+        camera.orbit(-rotation_speed, 0.0);  // Gira la cámara a la derecha
+    }
+
+    if window.is_key_down(Key::Up) {
+        camera.orbit(0.0, -rotation_speed);  // Mueve la cámara hacia arriba
+    }
+
+    if window.is_key_down(Key::Down) {
+        camera.orbit(0.0, rotation_speed);  // Mueve la cámara hacia abajo
+    }
+
+    if window.is_key_down(Key::Left) {
+        camera.move_camera("left");  // Mueve la cámara a la izquierda
+    }
+
+    if window.is_key_down(Key::Right) {
+        camera.move_camera("right");  // Mueve la cámara a la derecha
+    }
     
         render(&mut framebuffer, &objects_with_water_and_house, &camera, &light_positions, light_intensity);
     
