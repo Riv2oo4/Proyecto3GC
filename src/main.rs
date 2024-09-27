@@ -64,15 +64,61 @@ fn cast_shadow(
     shadow_intensity
 }
 
+fn interpolate_color(color1: Color, color2: Color, factor: f32) -> Color {
+    Color::new(
+        (color1.red() as f32 * (1.0 - factor) + color2.red() as f32 * factor) as u8,
+        (color1.green() as f32 * (1.0 - factor) + color2.green() as f32 * factor) as u8,
+        (color1.blue() as f32 * (1.0 - factor) + color2.blue() as f32 * factor) as u8,
+    )
+}
+
+fn calculate_light_intensity(light_position: &Vec3) -> f32 {
+    let max_intensity = 1.0;  // Máxima intensidad durante el día
+    let min_intensity = 0.2;  // Intensidad mínima durante la noche
+
+    // Factor de la altura de la luz: mayor altura, más brillante es el día
+    let light_height_factor = (light_position.y + 1.0).max(0.0) / 10.0;  // Ajustamos para evitar valores negativos
+
+    min_intensity + (max_intensity - min_intensity) * light_height_factor.clamp(0.0, 1.0)
+}
+
+
+fn skybox_color(ray_direction: &Vec3, light_intensity: f32) -> Color {
+    // Normalizamos el vector de dirección del rayo para obtener el valor Y (vertical)
+    let t = 0.5 * (ray_direction.y + 1.0);  // Valor de 0 a 1, donde 1 es hacia arriba y 0 hacia abajo
+
+    // Definimos un color base para el cielo y uno para el suelo
+    let sky_color_day = Color::new(135, 206, 235);  // Azul cielo durante el día
+    let ground_color_day = Color::new(222, 184, 135);  // Marrón claro para el suelo
+
+    // Simulación de cielo nocturno y suelo oscuro
+    let sky_color_night = Color::new(25, 25, 112);  // Azul oscuro (noche)
+    let ground_color_night = Color::new(50, 50, 50);  // Suelo oscuro
+
+    // Interpolamos entre los colores de día y noche según la intensidad de la luz
+    let sky_color = interpolate_color(sky_color_night, sky_color_day, light_intensity);
+    let ground_color = interpolate_color(ground_color_night, ground_color_day, light_intensity);
+
+    // Mezclamos los colores según la altura del rayo
+    let blended_color = Color::new(
+        ((1.0 - t) * ground_color.red() as f32 + t * sky_color.red() as f32) as u8,
+        ((1.0 - t) * ground_color.green() as f32 + t * sky_color.green() as f32) as u8,
+        ((1.0 - t) * ground_color.blue() as f32 + t * sky_color.blue() as f32) as u8,
+    );
+
+    blended_color
+}
+
 pub fn cast_ray(
     ray_origin: &Vec3,
     ray_direction: &Vec3,
     objects: &[Object],
-    yellow_light_position: &Vec3, 
+    light_positions: &[Vec3],  // Lista de posiciones de luz
     depth: u32,
+    light_intensity: f32,  // Usar la intensidad de la luz calculada para el ciclo día/noche
 ) -> Color {
     if depth > 3 {
-        return SKYBOX_COLOR;
+        return SKYBOX_COLOR;  // Skybox por defecto cuando excede la profundidad
     }
 
     let mut intersect = Intersect::empty();
@@ -89,26 +135,49 @@ pub fn cast_ray(
     }
 
     if !intersect.is_intersecting {
-        return SKYBOX_COLOR;
+        // Si no hay intersección, usar el color del skybox basado en la intensidad de la luz
+        return skybox_color(ray_direction, light_intensity);  // Cambiar el skybox basado en la intensidad de la luz
     }
 
-    let light_dir = (yellow_light_position - intersect.point).normalize();
-    let view_dir = (ray_origin - intersect.point).normalize();
-    let reflect_dir = reflect(&-light_dir, &intersect.normal).normalize();
+    // Calculamos la iluminación combinada de todas las fuentes de luz
+    let mut total_diffuse = Color::black();
+    let mut total_specular = Color::black();
 
-    let shadow_intensity = cast_shadow(&intersect, yellow_light_position, objects);
-    let light_intensity = 1.5 * (1.0 - shadow_intensity);
+    for light_position in light_positions {
+        let light_dir = (light_position - intersect.point).normalize();
+        let view_dir = (ray_origin - intersect.point).normalize();
+        let reflect_dir = reflect(&-light_dir, &intersect.normal).normalize();
 
-    let diffuse_intensity = intersect.normal.dot(&light_dir).max(0.0).min(1.0);
-    let diffuse = intersect.material.diffuse * intersect.material.albedo[0] * diffuse_intensity * light_intensity;
+        let shadow_intensity = cast_shadow(&intersect, light_position, objects);
+        let light_intensity = 1.5 * (1.0 - shadow_intensity);
 
-    let specular_intensity = view_dir.dot(&reflect_dir).max(0.0).powf(intersect.material.specular);
-    let specular = Color::new(255, 255, 255) * intersect.material.albedo[1] * specular_intensity * light_intensity;
+        // Iluminación difusa
+        let diffuse_intensity = intersect.normal.dot(&light_dir).max(0.0).min(1.0);
+        total_diffuse = total_diffuse + (intersect.material.diffuse * intersect.material.albedo[0] * diffuse_intensity * light_intensity);
 
-    diffuse + specular
+        // Iluminación especular
+        let specular_intensity = view_dir.dot(&reflect_dir).max(0.0).powf(intersect.material.specular);
+        total_specular = total_specular + (Color::new(255, 255, 255) * intersect.material.albedo[1] * specular_intensity * light_intensity);
+    }
+
+    // Si el material es emisivo y es de noche, añadimos su emisión al color final
+    let emission = if intersect.material.is_emissive  {
+        intersect.material.emission
+    } else {
+        Color::black()
+    };
+
+    total_diffuse + total_specular + emission
 }
 
-pub fn render(framebuffer: &mut Framebuffer, objects: &[Object], camera: &Camera, yellow_light_position: &Vec3) {
+
+pub fn render(
+    framebuffer: &mut Framebuffer,
+    objects: &[Object],
+    camera: &Camera,
+    light_positions: &[Vec3],  // Lista de luces
+    light_intensity: f32,  // Pasar la intensidad de la luz
+) {
     let width = framebuffer.width as f32;
     let height = framebuffer.height as f32;
     let aspect_ratio = width / height;
@@ -126,13 +195,14 @@ pub fn render(framebuffer: &mut Framebuffer, objects: &[Object], camera: &Camera
             let ray_direction = normalize(&Vec3::new(screen_x, screen_y, -1.0));
             let rotated_direction = camera.base_change(&ray_direction);
 
-            let pixel_color = cast_ray(&camera.eye, &rotated_direction, objects, yellow_light_position, 0);
+            let pixel_color = cast_ray(&camera.eye, &rotated_direction, objects, light_positions, 0, light_intensity);
 
             framebuffer.set_current_color(pixel_color.to_hex());
             framebuffer.point(x, y);
         }
     }
 }
+
 
 // Animación de agua en una cuadrícula
 fn generate_wave_grid(
@@ -192,8 +262,8 @@ fn generate_sand_house(sand_material: Material, start_position: Vec3, cube_size:
         for y in 0..house_height {
             for z in 0..house_depth {
                 // Dejar huecos para puertas y ventanas
-                let is_door = (x == 2 && z == 0 && y < 2);  // Puerta en el frente
-                let is_window = (y == 1 && (x == 1 || x == 3) && (z == 0 || z == house_depth - 1));  // Ventanas
+                let is_door = x == 2 && z == 0 && y < 2;  // Puerta en el frente
+                let is_window = y == 1 && (x == 1 || x == 3) && (z == 0 || z == house_depth - 1);  // Ventanas
                 
                 if !(is_door || is_window) {  // No poner cubo si es puerta o ventana
                     house_cubes.push(Object::Cube(
@@ -251,42 +321,61 @@ fn main() {
     )
     .unwrap();
 
-    // Material para la arena
+
     let sand_color = Material::new(
-        Color::new(237, 201, 175), 
+        Color::new(237, 201, 175),
         1.0,
         [0.9, 0.1, 0.0, 0.0],
         0.0,
+        Color::black(),  // No es emisivo
+        false,           // No es emisivo
     );
-
-    // Material para el tronco de la palmera
+    
     let brown_trunk = Material::new(
         Color::new(139, 69, 19),
         1.0,
         [0.9, 0.1, 0.0, 0.0],
         0.0,
+        Color::black(),  // No es emisivo
+        false,           // No es emisivo
     );
-
-    // Material para las hojas de la palmera
+    
     let green_leaf = Material::new(
         Color::new(34, 139, 34),
         1.0,
         [0.9, 0.1, 0.0, 0.0],
         0.0,
+        Color::black(),  // No es emisivo
+        false,           // No es emisivo
     );
-
-    // Material para el oasis (agua)
+    
     let water_material = Material::new(
         Color::new(0, 191, 255),
         1.0,
         [0.9, 0.1, 0.0, 0.0],
         0.0,
+        Color::black(),  // No es emisivo
+        false,           // No es emisivo
     );
+    
+    // Material emisivo (por ejemplo, cubos de luz)
+    let light_cube_material = Material::new(
+        Color::black(),              // Difuso (negro porque es emisivo)
+        0.0,                         // Especular
+        [0.0, 0.0, 0.0, 0.0],        // Albedo
+        0.0,                         // Índice refractivo
+        Color::new(255, 223, 0),      // Color de emisión (amarillo)
+        true                         // Es emisivo
+    );
+    
 
     // Creamos los objetos de la escena: terreno de arena, palmera y oasis
     let mut objects = vec![
         // Terreno (cubos grandes planos)
         Object::Cube(Cube { center: Vec3::new(0.0, 0.0, 0.0), size: 10.0, material: sand_color }, false),
+        // Cubos emisivos colocados alrededor de la casa
+        Object::Cube(Cube { center: Vec3::new(-2.5, 5.2, 2.0), size: 0.5, material: light_cube_material }, true),  // Cubo emisivo
+        Object::Cube(Cube { center: Vec3::new(4.5, 5.2, 2.0), size: 0.5, material: light_cube_material }, true),  // Cubo emisivo
     ];
 
     // Añadimos el tronco de la palmera
@@ -331,27 +420,38 @@ fn main() {
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         angle += rotation_speed; 
-    
+        
         let yellow_light_position = Vec3::new(radius * angle.cos(), radius * angle.sin(), 0.0);
-
+        let light_positions = vec![
+            Vec3::new(-2.5, 5.2, 2.0),  // Posición de uno de los cubos de luz
+            Vec3::new(4.5, 5.2, 2.0),   // Posición del otro cubo de luz
+            yellow_light_position,       // Luz amarilla en movimiento (sol)
+        ];
+    
+        // Calcula la intensidad de la luz según la posición de la luz amarilla (el sol)
+        let light_intensity = calculate_light_intensity(&yellow_light_position);
+    
+        // Calcula si es de noche (si la luz está baja en el horizonte)
+        let is_night = light_intensity < 0.3;  // Umbral para decidir si es de noche
+    
         // Calculamos el tiempo transcurrido
         let elapsed_time = start_time.elapsed().as_secs_f32();
         
         // Generamos la cuadrícula de agua animada
         let water_grid = generate_wave_grid(water_material, 6, 0.5, elapsed_time);  // Cambia el tamaño de la cuadrícula y de los cubos
-
+    
         // Generamos los bordes de arena alrededor del agua
         let sand_border = generate_sand_border(sand_color, 6, 0.5);
-
+    
         // Generamos una casita de arena
         let sand_house = generate_sand_house(sand_color, Vec3::new(-4.5, 5.2, -4.0), 0.5);
-
+    
         // Actualizamos la lista de objetos con el agua, los bordes de arena, y la casa
         let mut objects_with_water_and_house = objects.clone();
         objects_with_water_and_house.extend(water_grid);
         objects_with_water_and_house.extend(sand_border);
         objects_with_water_and_house.extend(sand_house);  // Añadimos la casita
-
+    
         if window.is_key_down(Key::W) {
             camera.move_camera("forward"); 
         }
@@ -384,7 +484,7 @@ fn main() {
             camera.orbit(0.0, rotation_speed); 
         }
     
-        render(&mut framebuffer, &objects_with_water_and_house, &camera, &yellow_light_position);
+        render(&mut framebuffer, &objects_with_water_and_house, &camera, &light_positions, light_intensity);
     
         window
             .update_with_buffer(&framebuffer.buffer, framebuffer.width, framebuffer.height)
@@ -392,4 +492,5 @@ fn main() {
     
         std::thread::sleep(frame_delay);
     }
+    
 }
