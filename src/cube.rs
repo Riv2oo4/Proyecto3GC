@@ -1,4 +1,4 @@
-use nalgebra_glm::{Vec3};
+use nalgebra_glm::Vec3;
 use crate::ray_intersect::{RayIntersect, Intersect};
 use crate::material::Material;
 
@@ -54,10 +54,6 @@ impl RayIntersect for Cube {
 
         if t_z_min > t_min {
             t_min = t_z_min;
-        }
-
-        if t_z_max < t_max {
-            t_max = t_z_max;
         }
 
         if t_min < 0.0 {
