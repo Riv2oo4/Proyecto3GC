@@ -3,7 +3,6 @@ mod ray_intersect;
 mod cube;
 mod color;
 mod camera;
-mod light;
 mod material;
 
 use minifb::{Window, WindowOptions, Key};
@@ -73,33 +72,27 @@ fn interpolate_color(color1: Color, color2: Color, factor: f32) -> Color {
 }
 
 fn calculate_light_intensity(light_position: &Vec3) -> f32 {
-    let max_intensity = 1.0;  // Máxima intensidad durante el día
-    let min_intensity = 0.2;  // Intensidad mínima durante la noche
+    let max_intensity = 1.0;  
+    let min_intensity = 0.2;  
 
-    // Factor de la altura de la luz: mayor altura, más brillante es el día
-    let light_height_factor = (light_position.y + 1.0).max(0.0) / 10.0;  // Ajustamos para evitar valores negativos
+    let light_height_factor = (light_position.y + 1.0).max(0.0) / 10.0;  
 
     min_intensity + (max_intensity - min_intensity) * light_height_factor.clamp(0.0, 1.0)
 }
 
 
 fn skybox_color(ray_direction: &Vec3, light_intensity: f32) -> Color {
-    // Normalizamos el vector de dirección del rayo para obtener el valor Y (vertical)
-    let t = 0.5 * (ray_direction.y + 1.0);  // Valor de 0 a 1, donde 1 es hacia arriba y 0 hacia abajo
+    let t = 0.5 * (ray_direction.y + 1.0);  
 
-    // Definimos un color base para el cielo y uno para el suelo
-    let sky_color_day = Color::new(135, 206, 235);  // Azul cielo durante el día
-    let ground_color_day = Color::new(222, 184, 135);  // Marrón claro para el suelo
+    let sky_color_day = Color::new(135, 206, 235);  
+    let ground_color_day = Color::new(222, 184, 135);  
 
-    // Simulación de cielo nocturno y suelo oscuro
-    let sky_color_night = Color::new(25, 25, 112);  // Azul oscuro (noche)
-    let ground_color_night = Color::new(50, 50, 50);  // Suelo oscuro
+    let sky_color_night = Color::new(25, 25, 112);  
+    let ground_color_night = Color::new(50, 50, 50);  
 
-    // Interpolamos entre los colores de día y noche según la intensidad de la luz
     let sky_color = interpolate_color(sky_color_night, sky_color_day, light_intensity);
     let ground_color = interpolate_color(ground_color_night, ground_color_day, light_intensity);
 
-    // Mezclamos los colores según la altura del rayo
     let blended_color = Color::new(
         ((1.0 - t) * ground_color.red() as f32 + t * sky_color.red() as f32) as u8,
         ((1.0 - t) * ground_color.green() as f32 + t * sky_color.green() as f32) as u8,
@@ -109,7 +102,6 @@ fn skybox_color(ray_direction: &Vec3, light_intensity: f32) -> Color {
     blended_color
 }
 fn fresnel(cos_theta: f32, refractive_index: f32) -> f32 {
-    // La aproximación de Schlick
     let r0 = ((1.0 - refractive_index) / (1.0 + refractive_index)).powi(2);
     r0 + (1.0 - r0) * (1.0 - cos_theta).powi(5)
 }
@@ -153,22 +145,18 @@ pub fn cast_ray(
         let shadow_intensity = cast_shadow(&intersect, light_position, objects);
         let light_intensity = 1.5 * (1.0 - shadow_intensity);
 
-        // Cálculo de Fresnel
         let cos_theta = -ray_direction.dot(&intersect.normal).max(0.0);
         let fresnel_effect = fresnel(cos_theta, intersect.material.refractive_index);
 
-        // Iluminación difusa
         let diffuse_intensity = intersect.normal.dot(&light_dir).max(0.0).min(1.0);
         total_diffuse = total_diffuse
             + (intersect.material.diffuse * intersect.material.albedo[0] * diffuse_intensity * light_intensity);
 
-        // Iluminación especular con Fresnel aplicado
         let specular_intensity = view_dir.dot(&reflect_dir).max(0.0).powf(intersect.material.specular);
         total_specular = total_specular
             + (Color::new(255, 255, 255) * intersect.material.albedo[1] * specular_intensity * light_intensity * fresnel_effect);
     }
 
-    // Emisión si es un material emisivo
     let emission = if intersect.material.is_emissive {
         intersect.material.emission
     } else {
@@ -184,8 +172,8 @@ pub fn render(
     framebuffer: &mut Framebuffer,
     objects: &[Object],
     camera: &Camera,
-    light_positions: &[Vec3],  // Lista de luces
-    light_intensity: f32,  // Pasar la intensidad de la luz
+    light_positions: &[Vec3],  
+    light_intensity: f32,  
 ) {
     let width = framebuffer.width as f32;
     let height = framebuffer.height as f32;
@@ -213,7 +201,6 @@ pub fn render(
 }
 
 
-// Animación de agua en una cuadrícula
 fn generate_wave_grid(
     water_material: Material, 
     grid_size: usize, 
@@ -223,7 +210,7 @@ fn generate_wave_grid(
     let mut water_cubes = Vec::new();
     for x in 0..grid_size {
         for z in 0..grid_size {
-            let wave_height = (elapsed_time * 2.0 + (x as f32 + z as f32) * 0.5).sin() * 0.2; // Simulación de ondas
+            let wave_height = (elapsed_time * 2.0 + (x as f32 + z as f32) * 0.5).sin() * 0.2; 
             water_cubes.push(Object::Cube(
                 Cube {
                     center: Vec3::new(x as f32 * cube_size, 4.9 + wave_height, z as f32 * cube_size),
@@ -237,12 +224,10 @@ fn generate_wave_grid(
     water_cubes
 }
 
-// Generar borde de arena alrededor del agua
 fn generate_sand_border(sand_material: Material, grid_size: usize, cube_size: f32) -> Vec<Object> {
     let mut sand_cubes = Vec::new();
     for x in 0..grid_size {
         for z in 0..grid_size {
-            // Crear bordes de arena en el contorno
             if x == 0 || x == grid_size - 1 || z == 0 || z == grid_size - 1 {
                 sand_cubes.push(Object::Cube(
                     Cube {
@@ -258,23 +243,20 @@ fn generate_sand_border(sand_material: Material, grid_size: usize, cube_size: f3
     sand_cubes
 }
 
-// Generar casita de arena
 fn generate_sand_house(sand_material: Material, start_position: Vec3, cube_size: f32) -> Vec<Object> {
     let mut house_cubes = Vec::new();
 
-    let house_width = 5;  // Anchura de la casa (cubos)
-    let house_height = 3;  // Altura de la casa (cubos)
-    let house_depth = 5;  // Profundidad de la casa (cubos)
+    let house_width = 5;  
+    let house_height = 3;  
+    let house_depth = 5;  
 
-    // Construimos las paredes y el techo
     for x in 0..house_width {
         for y in 0..house_height {
             for z in 0..house_depth {
-                // Dejar huecos para puertas y ventanas
-                let is_door = x == 2 && z == 0 && y < 2;  // Puerta en el frente
-                let is_window = y == 1 && (x == 1 || x == 3) && (z == 0 || z == house_depth - 1);  // Ventanas
+                let is_door = x == 2 && z == 0 && y < 2;  
+                let is_window = y == 1 && (x == 1 || x == 3) && (z == 0 || z == house_depth - 1);  
                 
-                if !(is_door || is_window) {  // No poner cubo si es puerta o ventana
+                if !(is_door || is_window) {  
                     house_cubes.push(Object::Cube(
                         Cube {
                             center: Vec3::new(
@@ -292,14 +274,13 @@ fn generate_sand_house(sand_material: Material, start_position: Vec3, cube_size:
         }
     }
 
-    // Techo de la casa (cubriendo toda la superficie)
     for x in 0..house_width {
         for z in 0..house_depth {
             house_cubes.push(Object::Cube(
                 Cube {
                     center: Vec3::new(
                         start_position.x + x as f32 * cube_size,
-                        start_position.y + house_height as f32 * cube_size,  // Techo está en la altura máxima
+                        start_position.y + house_height as f32 * cube_size,  
                         start_position.z + z as f32 * cube_size,
                     ),
                     size: cube_size,
@@ -336,8 +317,8 @@ fn main() {
         1.0,
         [0.9, 0.1, 0.0, 0.0],
         0.0,
-        Color::black(),  // No es emisivo
-        false,           // No es emisivo
+        Color::black(),  
+        false,           
     );
     
     let brown_trunk = Material::new(
@@ -345,8 +326,8 @@ fn main() {
         1.0,
         [0.9, 0.1, 0.0, 0.0],
         0.0,
-        Color::black(),  // No es emisivo
-        false,           // No es emisivo
+        Color::black(),  
+        false,           
     );
     
     let green_leaf = Material::new(
@@ -354,8 +335,8 @@ fn main() {
         1.0,
         [0.9, 0.1, 0.0, 0.0],
         0.0,
-        Color::black(),  // No es emisivo
-        false,           // No es emisivo
+        Color::black(),  
+        false,           
     );
     
     let water_material = Material::new(
@@ -363,34 +344,28 @@ fn main() {
         1.0,
         [0.9, 0.1, 0.0, 0.0],
         0.0,
-        Color::black(),  // No es emisivo
-        false,           // No es emisivo
+        Color::black(),  
+        false,           
     );
     
-    // Material emisivo (por ejemplo, cubos de luz)
     let light_cube_material = Material::new(
-        Color::black(),              // Difuso (negro porque es emisivo)
-        0.0,                         // Especular
-        [0.0, 0.0, 0.0, 0.0],        // Albedo
-        0.0,                         // Índice refractivo
-        Color::new(255, 223, 0),      // Color de emisión (amarillo)
-        true                         // Es emisivo
+        Color::black(),              
+        0.0,                        
+        [0.0, 0.0, 0.0, 0.0],        
+        0.0,                         
+        Color::new(255, 223, 0),      
+        true                         
     );
     
-
-    // Creamos los objetos de la escena: terreno de arena, palmera y oasis
     let mut objects = vec![
-        // Terreno (cubos grandes planos)
         Object::Cube(Cube { center: Vec3::new(0.0, 0.0, 0.0), size: 10.0, material: sand_color }, false),
-        // Cubos emisivos colocados alrededor de la casa
-        Object::Cube(Cube { center: Vec3::new(1.0, 5.2, -4.0), size: 0.5, material: light_cube_material }, true),  // Cubo emisivo
-        Object::Cube(Cube { center: Vec3::new(4.5, 5.2, 2.0), size: 0.5, material: light_cube_material }, true),  // Cubo emisivo
+        Object::Cube(Cube { center: Vec3::new(1.0, 5.2, -4.0), size: 0.5, material: light_cube_material }, true),  
+        Object::Cube(Cube { center: Vec3::new(4.5, 5.2, 2.0), size: 0.5, material: light_cube_material }, true),  
     ];
 
-    // Añadimos el tronco de la palmera
-    let trunk_start_y = 5.0;  // El tronco comienza en la parte superior del cubo de arena (altura 5.0)
+    let trunk_start_y = 5.0;  
     let trunk_cube_size = 0.4;
-    let num_trunk_cubes = 5;  // Número de cubos para el tronco
+    let num_trunk_cubes = 5;  
 
     for i in 0..num_trunk_cubes {
         objects.push(Object::Cube(Cube { 
@@ -400,7 +375,6 @@ fn main() {
         }, false));
     }
 
-    // Hojas de la palmera
     let leaf_start_y = trunk_start_y + num_trunk_cubes as f32 * trunk_cube_size; 
     let leaf_positions = vec![
         Vec3::new(0.0, leaf_start_y, 0.0),
@@ -414,8 +388,7 @@ fn main() {
         objects.push(Object::Cube(Cube { center: pos, size: 0.5, material: green_leaf }, false));
     }
 
-    // Inicializamos la animación
-    let start_time = Instant::now();  // Usamos el tiempo para animar el agua
+    let start_time = Instant::now();  
 
     let mut camera = Camera::new(
         Vec3::new(5.0, 5.0, 10.0), 
@@ -432,36 +405,26 @@ fn main() {
         
         let yellow_light_position = Vec3::new(radius * angle.cos(), radius * angle.sin(), 0.0);
         let light_positions = vec![
-            Vec3::new(1.0, 5.2, -4.0),  // Posición de uno de los cubos de luz
-            Vec3::new(4.5, 5.2, 2.0),   // Posición del otro cubo de luz
-            yellow_light_position,       // Luz amarilla en movimiento (sol)
+            Vec3::new(1.0, 5.2, -4.0),  
+            Vec3::new(4.5, 5.2, 2.0),   
+            yellow_light_position,       
         ];
     
-        // Calcula la intensidad de la luz según la posición de la luz amarilla (el sol)
         let light_intensity = calculate_light_intensity(&yellow_light_position);
-    
-        // Calcula si es de noche (si la luz está baja en el horizonte)
-        let is_night = light_intensity < 0.3;  // Umbral para decidir si es de noche
-    
-        // Calculamos el tiempo transcurrido
+
         let elapsed_time = start_time.elapsed().as_secs_f32();
         
-        // Generamos la cuadrícula de agua animada
-        let water_grid = generate_wave_grid(water_material, 6, 0.5, elapsed_time);  // Cambia el tamaño de la cuadrícula y de los cubos
+        let water_grid = generate_wave_grid(water_material, 6, 0.5, elapsed_time);  
     
-        // Generamos los bordes de arena alrededor del agua
         let sand_border = generate_sand_border(sand_color, 6, 0.5);
     
-        // Generamos una casita de arena
         let sand_house = generate_sand_house(sand_color, Vec3::new(-4.5, 5.2, -4.0), 0.5);
     
-        // Actualizamos la lista de objetos con el agua, los bordes de arena, y la casa
         let mut objects_with_water_and_house = objects.clone();
         objects_with_water_and_house.extend(water_grid);
         objects_with_water_and_house.extend(sand_border);
-        objects_with_water_and_house.extend(sand_house);  // Añadimos la casita
+        objects_with_water_and_house.extend(sand_house);  
     
-      // Movimientos de la cámara
       if window.is_key_down(Key::W) {
         camera.move_camera("forward"); 
     }
@@ -471,27 +434,27 @@ fn main() {
     }
 
     if window.is_key_down(Key::A) {
-        camera.orbit(rotation_speed, 0.0);  // Gira la cámara a la izquierda
+        camera.orbit(rotation_speed, 0.0);  
     }
 
     if window.is_key_down(Key::D) {
-        camera.orbit(-rotation_speed, 0.0);  // Gira la cámara a la derecha
+        camera.orbit(-rotation_speed, 0.0);  
     }
 
     if window.is_key_down(Key::Up) {
-        camera.orbit(0.0, -rotation_speed);  // Mueve la cámara hacia arriba
+        camera.orbit(0.0, -rotation_speed);  
     }
 
     if window.is_key_down(Key::Down) {
-        camera.orbit(0.0, rotation_speed);  // Mueve la cámara hacia abajo
+        camera.orbit(0.0, rotation_speed);  
     }
 
     if window.is_key_down(Key::Left) {
-        camera.move_camera("left");  // Mueve la cámara a la izquierda
+        camera.move_camera("left");  
     }
 
     if window.is_key_down(Key::Right) {
-        camera.move_camera("right");  // Mueve la cámara a la derecha
+        camera.move_camera("right");  
     }
     
         render(&mut framebuffer, &objects_with_water_and_house, &camera, &light_positions, light_intensity);
