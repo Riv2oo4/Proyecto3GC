@@ -78,6 +78,6 @@ impl RayIntersect for Cube {
         }
 
         let distance = t_min;
-        Intersect::new(point, normal, distance, self.material.clone())  // Usar 'new' normal
+        Intersect::new(point, normal, distance, self.material.clone())  
     }
 }
