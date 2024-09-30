@@ -27,7 +27,6 @@ impl Color {
         ((self.r as u32) << 16) | ((self.g as u32) << 8) | (self.b as u32)
     }
 
-    // Getters para acceder a los campos privados
     pub fn red(&self) -> u8 {
         self.r
     }
